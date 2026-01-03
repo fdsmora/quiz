@@ -38,7 +38,7 @@ func readProblems(csvFile *os.File) []problem {
 			log.Fatal(err)
 		}
 		if record[0] != "" && record[1] != "" {
-			problems = append(problems, problem{record[0], strings.ToLower(record[1]})
+			problems = append(problems, problem{record[0], strings.ToLower(record[1])})
 		}
 	}
 
