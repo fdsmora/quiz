@@ -1,21 +1,20 @@
 package main
 
 import (
-	"bufio"
 	"encoding/csv"
 	"flag"
-	"fmt"
+	"io"
 	"log"
 	"math/rand"
 	"os"
-	"strings"
 	"time"
+
+	"github.com/fdsmora/gophercises/quiz/question"
+	"github.com/fdsmora/gophercises/quiz/quiz"
 )
 
 const (
 	problemsFile = "problems.csv"
-	welcomeMsg   = "Welcome to the Quiz! Press Enter to start."
-	resultMsg    = "You got %d out of %d questions correct."
 )
 
 func main() {
@@ -27,6 +26,7 @@ func main() {
 	flag.Parse()
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	records := readCSV(problemsFile)
+
 	totalQuestions := len(records)
 	if *shufflePtr {
 		// Shuffle the slice
@@ -35,61 +35,20 @@ func main() {
 		})
 	}
 
-	fmt.Println(welcomeMsg)
-	bufio.NewReader(os.Stdin).ReadString('\n') // Wait for user to press Enter
+	quiz := quiz.New(createQuestions(records))
+	go quiz.Run(os.Stdout, os.Stdin)
 
-	timeLimit := time.Duration(*timeLimitPtr) * time.Second
-	totalCorrect := questionnaire(records, timeLimit)
-
-	fmt.Printf(resultMsg, totalCorrect, totalQuestions)
+	// Wait for the quiz to finish
+	time.Sleep(time.Duration(*timeLimitPtr) * time.Second)
+	quiz.PrintResult(os.Stdout)
 }
 
-func askQuestion(question string, aCh chan string, doneCh chan bool) {
-	fmt.Printf("%s? ", question)
-
-	inputCh := make(chan string)
-	go func() {
-		input, err := bufio.NewReader(os.Stdin).ReadString('\n')
-		if err != nil {
-			log.Fatalf("Error reading input: %s", err.Error())
-		}
-		inputCh <- input
-	}()
-
-	select {
-	case input := <-inputCh:
-		aCh <- input
-	case <-doneCh:
-		return
+func createQuestions(records [][]string) []question.Question {
+	questions := make([]question.Question, 0, len(records))
+	for _, r := range records {
+		questions = append(questions, question.New(r))
 	}
-}
-
-func questionnaire(records [][]string, timeLimit time.Duration) int {
-	totalCorrect := 0
-
-	timer := time.After(timeLimit) // Single timer for the entire quiz
-	aCh := make(chan string)
-	doneCh := make(chan bool)
-
-	for _, record := range records {
-		question, answer := strings.TrimSpace(record[0]), strings.TrimSpace(record[1])
-		go func() {
-			askQuestion(question, aCh, doneCh)
-		}()
-
-		select {
-		case <-timer:
-			close(doneCh) // Signal all goroutines to stop
-			fmt.Println("\nTime's up! totalCorrect:", totalCorrect)
-			return totalCorrect
-		case ans := <-aCh:
-			if strings.TrimSpace(ans) == answer {
-				totalCorrect++
-			}
-		}
-	}
-
-	return totalCorrect
+	return questions
 }
 
 func readCSV(filename string) [][]string {
@@ -100,9 +59,16 @@ func readCSV(filename string) [][]string {
 	defer file.Close()
 
 	reader := csv.NewReader(file)
-	records, err := reader.ReadAll()
-	if err != nil {
-		log.Fatalf("Failed to parse the CSV file: %s", err.Error())
+	records := make([][]string, 0)
+	for {
+		record, err := reader.Read()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			log.Fatalf("error reading CSV: %s", err.Error())
+		}
+		records = append(records, record)
 	}
 
 	return records
